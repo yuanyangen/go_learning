@@ -6,7 +6,7 @@ package curl
 //3： 自定义header done
 //4： https
 //5:  上传文件
-//6:  允许执行的时间
+//6:  允许执行的时间 done
 //7:  允许执行多个请求
 //8:  允许设置编码的类型
 //9:  允许设置referer done
@@ -164,7 +164,6 @@ func (this *Ch) Execute() {
 		tmpInfo, _ := ioutil.ReadAll(conn)
 		//这里应该将输出的字符串整理成response对象
 		this.resp.processResponse(string(tmpInfo))
-		time.Sleep(time.Second * 10)
 		channel <- true
 	}()
 	//如果超时, 返回的响应头中的header为timeout
