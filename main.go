@@ -10,7 +10,7 @@ var chann = make(chan int, 2)
 
 func main() {
 	go b()
-	go a()
+	//	go a()
 	i := 0
 WAIT:
 	for {
@@ -18,8 +18,7 @@ WAIT:
 		case <-chann:
 			{
 				i++
-				if i == 2 {
-					fmt.Println("success get info")
+				if i > 0 {
 					break WAIT
 				}
 			}
@@ -42,8 +41,10 @@ func b() {
 	ch.SetCookieJar("Q=u%3Dlhnalnatra%26n%3D%26le%3DrKIuoayuozqyovH0ZQRlAv5wo20%3D%26m%3D%26qid%3D849734198%26im%3D1_t00df551a583a87f4e9%26src%3Dpcw_union_youqian%26t%3D1; T=s%3D9482f4bd7ebea3d5bd3312ce8bb441e4%26t%3D1450881248%26lm%3D%26lf%3D4%26sk%3D2ea00a41e96dfdaf71212f3c55a734b2%26mt%3D1450881248%26rc%3D%26v%3D2.0%26a%3D1")
 	ch.SetHeader("der: hehehe")
 	ch.SetReferer("http://www.baidu.com")
-	response := ch.Execute()
-	msg := response.GetBody()
+	ch.SetTimeout(1)
+	ch.Execute()
+	msg := ch.GetBody()
+	msg = ch.GetHeader()
 	fmt.Println(msg)
 	chann <- 1
 
@@ -53,8 +54,8 @@ func a() {
 	ch := curl.Init()
 	targetUrl := "http://youqian.360.cn/psp_jump.html"
 	ch.SetUrl(targetUrl)
-	response := ch.Execute()
-	msg := response.GetBody()
+	ch.Execute()
+	msg := ch.GetBody()
 	fmt.Println(msg)
 	chann <- 2
 }
