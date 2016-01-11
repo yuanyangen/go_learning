@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
 	"net/url"
@@ -185,6 +186,8 @@ func (tr *transportRequest) extraHeaders() Header {
 }
 
 // RoundTrip implements the RoundTripper interface.
+// 从代码的层级上看，这个层次与http连接的本省没有什么关系了，
+// 难道说超级大神对代码的封装的层级仍然不太在意？还是这样封装有什么特别的好处
 //
 // For higher-level HTTP client support (such as handling of cookies
 // and redirects), see Get, Post, and the Client type.
@@ -216,7 +219,7 @@ func (t *Transport) RoundTrip(req *Request) (resp *Response, err error) {
 		return nil, errors.New("http: no Host in request URL")
 	}
 	//获取一个连接的方法? 这里面应该并没有建立连接, 只是用户有建立一个tcp\
-    //连接的所有的参数
+	//连接的所有的参数
 	treq := &transportRequest{Request: req}
 	cm, err := t.connectMethodForRequest(treq)
 	if err != nil {
@@ -334,6 +337,7 @@ func (e *envOnce) reset() {
 	e.val = ""
 }
 
+//获取的cm。targetAddr实际上就是将IP地址和域名拼装成传输层的信息
 func (t *Transport) connectMethodForRequest(treq *transportRequest) (cm connectMethod, err error) {
 	cm.targetScheme = treq.URL.Scheme
 	cm.targetAddr = canonicalAddr(treq.URL)
@@ -419,6 +423,8 @@ func (t *Transport) putIdleConn(pconn *persistConn) bool {
 // getIdleConnCh returns a channel to receive and return idle
 // persistent connection for the given connectMethod.
 // It may return nil, if persistent connections are not being used.
+//在这里使用idleconnch的原因是： 不同的连接之间并没有一个明确的区分
+//所以需要在和连接一样， 使用cm将channel区分出来， 从而实现区分pc
 func (t *Transport) getIdleConnCh(cm connectMethod) chan *persistConn {
 	if t.DisableKeepAlives {
 		return nil
@@ -438,8 +444,12 @@ func (t *Transport) getIdleConnCh(cm connectMethod) chan *persistConn {
 	return ch
 }
 
+//获取一个空闲的连接, 这里应该有连接池的处理
 func (t *Transport) getIdleConn(cm connectMethod) (pconn *persistConn) {
 	key := cm.key()
+	//key里面拥有对方IP和端口， 请求方式等各种信息， 因此就可以使用key对已经拥有
+	//的长链接进行区分
+	//建立连接之前先加锁，是为了防止出现？？？？？？？ todo
 	t.idleMu.Lock()
 	defer t.idleMu.Unlock()
 	if t.idleConn == nil {
@@ -511,8 +521,10 @@ var prePendingDial, postPendingDial func()
 // specified in the connectMethod.  This includes doing a proxy CONNECT
 // and/or setting up TLS.  If this doesn't return an error, the persistConn
 // is ready to write requests to.
+//建立一个持久化的连接，同时开启了一个协程，这个协程进行连接建立的网络操作， 并等待后面的数据将信息
+//发送会这个链接， 实际上就是一个请求过程中，建立连接和处理数据实在并行的
 func (t *Transport) getConn(req *Request, cm connectMethod) (*persistConn, error) {
-	fmt.Println(req, cm, 11112121314)
+	//如果能够从当前的连接列表中获取到连接， 就将这个链接返回
 	if pc := t.getIdleConn(cm); pc != nil {
 		// set request canceler to some non-nil function so we
 		// can detect whether it was cleared between now and when
@@ -521,6 +533,7 @@ func (t *Transport) getConn(req *Request, cm connectMethod) (*persistConn, error
 		return pc, nil
 	}
 
+	//建立一个TCP连接
 	type dialRes struct {
 		pc  *persistConn
 		err error
@@ -536,7 +549,14 @@ func (t *Transport) getConn(req *Request, cm connectMethod) (*persistConn, error
 		if prePendingDial != nil {
 			prePendingDial()
 		}
+		//另外开启一个协程，这个协程等待原始的协程见数据通过channel传过来
+		//?? 这里需要确认一下
 		go func() {
+			//r如果从dialc的channel中成功获取到一个长链接，就将其放入长链接池中，
+			//说这个是连接池，实际上应该是一个链接的映射表，对于一一个IP与port， 方法的
+			//对应关系而言，其只需要使用一次TCP连接就可以了
+			//这个之所以需要重新建立一个协程，是由于其等待的资源是另外的协程给予的，为了
+			//防止主协程阻塞，就单独开了一个协程等待过来的连接资源，让主协程可以继续执行下去
 			if v := <-dialc; v.err == nil {
 				t.putIdleConn(v.pc)
 			}
@@ -549,6 +569,7 @@ func (t *Transport) getConn(req *Request, cm connectMethod) (*persistConn, error
 	cancelc := make(chan struct{})
 	t.setReqCanceler(req, func() { close(cancelc) })
 
+	//新开一个协程执行tcp连接建立，将建立完成的连接发送到dialRes这个channel中
 	go func() {
 		pc, err := t.dialConn(cm)
 		dialc <- dialRes{pc, err}
@@ -565,6 +586,7 @@ func (t *Transport) getConn(req *Request, cm connectMethod) (*persistConn, error
 		// else's dial that they didn't use.
 		// But our dial is still going, so give it away
 		// when it finishes:
+		// 这个是成功返回了持久化连接的情况
 		handlePendingDial()
 		return pc, nil
 	case <-req.Cancel:
@@ -930,8 +952,13 @@ func (pc *persistConn) readLoop() {
 				resp.Header.Del("Content-Encoding")
 				resp.Header.Del("Content-Length")
 				resp.ContentLength = -1
+				//为啥这里可以实现gzip的解码？
+				msg, _ := ioutil.ReadAll(resp.Body)
+
 				resp.Body = &gzipReader{body: resp.Body}
+
 			}
+
 			resp.Body = &bodyEOFSignal{body: resp.Body}
 		}
 
@@ -1114,6 +1141,8 @@ var (
 	testHookReadLoopBeforeNextRead  func()
 )
 
+//获取连接后，向TCP连接中邪http请求信息
+//但是实际上将信息写入到socket的不是这个协程，而是负责建立连接的那个协程
 func (pc *persistConn) roundTrip(req *transportRequest) (resp *Response, err error) {
 	if hook := testHookEnterRoundTrip; hook != nil {
 		hook()
@@ -1167,6 +1196,7 @@ func (pc *persistConn) roundTrip(req *transportRequest) (resp *Response, err err
 	pc.writech <- writeRequest{req, writeErrCh}
 
 	resc := make(chan responseAndError, 1)
+	//将请求的地址，返回结果的channel通过channel给执行请求的协程
 	pc.reqch <- requestAndChan{req.Request, resc, requestedGzip}
 
 	var re responseAndError
@@ -1212,6 +1242,7 @@ WaitResponse:
 			// with a non-blocking receive.
 			select {
 			case re = <-resc:
+
 				if fn := testHookPersistConnClosedGotRes; fn != nil {
 					fn()
 				}

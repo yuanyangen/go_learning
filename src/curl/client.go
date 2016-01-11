@@ -88,6 +88,7 @@ var defaultConn = connection{
 	80,
 }
 
+//返回的是一个Ch的对象，这个是因为
 func Init() Ch {
 	return Ch{defaultRequest, defaultResp, defaultConn}
 }

@@ -3,33 +3,41 @@ package main
 import (
 	"curl"
 	"fmt"
-	"time"
+	"io/ioutil"
+	"learning"
 )
+
+func main() {
+	resp, _ := learning.Get("http://dev.yyg.youqian.360.cn/test.php")
+	msg, _ := ioutil.ReadAll(resp.Body)
+	fmt.Println(string(msg))
+
+}
 
 var chann = make(chan int, 2)
 
-func main() {
-	go b()
-	//	go a()
-	i := 0
-WAIT:
-	for {
-		select {
-		case <-chann:
-			{
-				i++
-				if i > 0 {
-					break WAIT
-				}
-			}
-		case <-time.After(time.Second * 2):
-			{
-				fmt.Println("2s time out")
-				break WAIT
-			}
-		}
-	}
-}
+//func main() {
+//go b()
+////	go a()
+//i := 0
+//WAIT:
+//for {
+//select {
+//case <-chann:
+//{
+//i++
+//if i > 0 {
+//break WAIT
+//}
+//}
+//case <-time.After(time.Second * 2):
+//{
+//fmt.Println("2s time out")
+//break WAIT
+//}
+//}
+//}
+//}
 
 func b() {
 	targetUrl := "http://youqian.360.cn/user/signQuery"

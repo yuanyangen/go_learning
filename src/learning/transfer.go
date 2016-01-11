@@ -204,6 +204,7 @@ func (t *transferWriter) WriteHeader(w io.Writer) error {
 	return nil
 }
 
+//这个因该是将body写入到io中，但是为什么要做么做？
 func (t *transferWriter) WriteBody(w io.Writer) error {
 	var err error
 	var ncopy int64

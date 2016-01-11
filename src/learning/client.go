@@ -145,7 +145,7 @@ func (c *Client) send(req *Request) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-    //如果返回结果有中set-cookie, 就设置cookie
+	//如果返回结果有中set-cookie, 就设置cookie
 	if c.Jar != nil {
 		if rc := resp.Cookies(); len(rc) > 0 {
 			c.Jar.SetCookies(req.URL, rc)
@@ -192,7 +192,6 @@ func (c *Client) transport() RoundTripper {
 // send issues an HTTP request.
 // Caller should close resp.Body when done reading from it.
 func send(req *Request, t RoundTripper) (resp *Response, err error) {
-	fmt.Println(req)
 	if t == nil {
 		req.closeBody()
 		return nil, errors.New("http: no Client.Transport or DefaultTransport")
@@ -220,6 +219,10 @@ func send(req *Request, t RoundTripper) (resp *Response, err error) {
 		password, _ := u.Password()
 		req.Header.Set("Authorization", "Basic "+basicAuth(username, password))
 	}
+	//将信息发送, 这里的roundtripper是一个接口类型，就是说， 只要有类型实现了roundtrip的方法，
+	//就是实现了这个接口。而传进来的t的类型是：roundtripper， 但是实现的值无论是什么类型的， 只要
+	//这个类型实现了roundtrip的方法， 就可以传过来， 以dfaulttransport为例，其类型是transport，
+	//实现了该方法，所以在这里是可以运行的, 所以这里调用的实际上是transport中的Roundtrip方法
 	resp, err = t.RoundTrip(req)
 	if err != nil {
 		if resp != nil {
@@ -330,15 +333,19 @@ func (c *Client) doFollowingRedirects(ireq *Request, shouldRedirect func(int) bo
 	var timer *time.Timer
 	var atomicWasCanceled int32 // atomic bool (1 or 0)
 	var wasCanceled = alwaysFalse
+	//如果设置了超时时间，则在时间到后，关闭本次请求的连接
 	if c.Timeout > 0 {
 		wasCanceled = func() bool { return atomic.LoadInt32(&atomicWasCanceled) != 0 }
 		type canceler interface {
 			CancelRequest(*Request)
 		}
+		//
 		tr, ok := c.transport().(canceler)
 		if !ok {
 			return nil, fmt.Errorf("net/http: Client Transport of type %T doesn't support CancelRequest; Timeout not supported", c.transport())
 		}
+		//如果设置了超时，则在超时后， 直接cancel掉请求，@todo
+		//需要确认一下这里加锁的原因
 		timer = time.AfterFunc(c.Timeout, func() {
 			atomic.StoreInt32(&atomicWasCanceled, 1)
 			reqmu.Lock()
@@ -349,8 +356,10 @@ func (c *Client) doFollowingRedirects(ireq *Request, shouldRedirect func(int) bo
 
 	urlStr := "" // next relative or absolute URL to fetch (after first request)
 	redirectFailed := false
+	//开始进行请求， 如果结果需要重定向，
 	for redirect := 0; ; redirect++ {
 		if redirect != 0 {
+			//对于一个新的请求而言，需要重新获取一个对象，并设置心情求的referer
 			nreq := new(Request)
 			nreq.Method = ireq.Method
 			if ireq.Method == "POST" || ireq.Method == "PUT" {
@@ -391,7 +400,7 @@ func (c *Client) doFollowingRedirects(ireq *Request, shouldRedirect func(int) bo
 			break
 		}
 
-		//如果结果需要重定向, 则设置重定向的url
+		//如果结果需要重定向, 则设置重定向的url, 并重新执行这个循环
 		if shouldRedirect(resp.StatusCode) {
 			// Read the body if small so underlying TCP connection will be re-used.
 			// No need to check for errors: if it fails, Transport won't reuse it anyway.
@@ -408,6 +417,7 @@ func (c *Client) doFollowingRedirects(ireq *Request, shouldRedirect func(int) bo
 			via = append(via, req)
 			continue
 		}
+		//这里是因为超时后，返回的值么? @todo
 		if timer != nil {
 			resp.Body = &cancelTimerBody{
 				t:              timer,
@@ -418,6 +428,7 @@ func (c *Client) doFollowingRedirects(ireq *Request, shouldRedirect func(int) bo
 		return resp, nil
 	}
 
+	//有返回值后，将之返回给调用方， 包括组装错误信息等。
 	method := ireq.Method
 	urlErr := &url.Error{
 		Op:  method[0:1] + strings.ToLower(method[1:]),
