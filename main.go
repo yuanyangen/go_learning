@@ -3,14 +3,14 @@ package main
 import (
 	"curl"
 	"fmt"
-	"io/ioutil"
-	"learning"
+	"webServer"
 )
 
 func main() {
-	resp, _ := learning.Get("http://dev.yyg.youqian.360.cn/test.php")
-	msg, _ := ioutil.ReadAll(resp.Body)
-	fmt.Println(string(msg))
+	/* resp, _ := learning.Get("http://dev.yyg.youqian.360.cn/test.php")*/
+	//msg, _ := ioutil.ReadAll(resp.Body)
+	//fmt.Println(string(msg))
+	server.StartServer()
 
 }
 
